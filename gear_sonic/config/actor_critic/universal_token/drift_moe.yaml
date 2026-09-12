@@ -7,9 +7,10 @@ drift_moe:
   enabled: true
   num_experts: 8
   top_k: 2
-  expert_hidden_dim: 128
   router_hidden_dim: 128
-  action_hidden_dims: [2048, 2048, 1024, 1024, 512, 512]
+  stem_hidden_dims: [2048, 1024]
+  expert_hidden_dims: [1024, 1024, 512]
+  head_hidden_dims: [512]
   balance_coef: 0.01
   intra_coef: 0.01
   cross_coef: 0.01
