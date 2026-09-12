@@ -8,7 +8,7 @@ drift_moe:
   num_experts: 8
   top_k: 2
   router_hidden_dim: 128
-  stem_hidden_dims: [2048, 1024]
+  stem_hidden_dims: [1024, 1024]
   expert_hidden_dims: [1024, 512, 256]
   head_hidden_dims: [256]
   balance_coef: 0.01
