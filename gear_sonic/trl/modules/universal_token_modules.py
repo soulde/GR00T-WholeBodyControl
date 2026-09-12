@@ -431,7 +431,7 @@ class UniversalTokenModule(nn.Module):
                 router_hidden_dim=self.drift_moe_cfg.get("router_hidden_dim", 128),
                 stem_hidden_dims=tuple(self.drift_moe_cfg.get("stem_hidden_dims", (2048, 1024))),
                 expert_hidden_dims=tuple(
-                    self.drift_moe_cfg.get("expert_hidden_dims", (1024, 1024, 512))
+                    self.drift_moe_cfg.get("expert_hidden_dims", (1024, 512, 512))
                 ),
                 head_hidden_dims=tuple(self.drift_moe_cfg.get("head_hidden_dims", (512,))),
             )
