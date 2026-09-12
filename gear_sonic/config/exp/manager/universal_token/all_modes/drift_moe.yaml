@@ -1,8 +1,19 @@
 # @package _global_
 
 defaults:
-  - sonic_release
-  - /actor_critic/universal_token/drift_moe@algo.config.actor.backbone
+  - /algo: ppo_im_phc
+  - /manager_env: base_env
+  - /callbacks/read_eval
+  - /callbacks/im_resample
+  - /aux_losses: universal_token/g1_recon_and_all_latent
+  - override /trainer: trl_ppo_aux
+  - override /actor_critic: universal_token/all_mlp_v1
+  - override /manager_env/observations/tokenizer: unitoken_all_noz
+  - override /manager_env/observations/policy: local_dir_hist
+  - override /manager_env/observations/critic: privileged_mf_hist
+  - override /manager_env/events: tracking/level0_4
+  - override /manager_env/terminations: tracking/base_adaptive_strict_ori_foot_xyz
+  - override /manager_env/rewards: tracking/base_5point_local_feet_acc
 
 exp_var: drift_moe
 experiment_name: ${exp_base}_${exp_var}
@@ -10,3 +21,20 @@ experiment_name: ${exp_base}_${exp_var}
 # Load the released SONIC weights when training starts.  Override this path
 # with an absolute path if the checkpoint is stored elsewhere.
 checkpoint: ${oc.env:SONIC_CHECKPOINT,sonic_release/last.pt}
+
+algo:
+  config:
+    actor:
+      backbone:
+        drift_moe:
+          enabled: true
+          num_experts: 8
+          top_k: 2
+          expert_hidden_dim: 128
+          router_hidden_dim: 128
+          action_hidden_dims: [2048, 2048, 1024, 1024, 512, 512]
+          balance_coef: 0.01
+          intra_coef: 0.01
+          cross_coef: 0.01
+          margin: 1.0
+          window_size: 25
