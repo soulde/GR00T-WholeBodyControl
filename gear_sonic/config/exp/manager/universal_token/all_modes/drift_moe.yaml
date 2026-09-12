@@ -18,6 +18,44 @@ defaults:
 exp_var: drift_moe
 exp_base: ${hydra:runtime.choices.exp}
 experiment_name: ${exp_base}_${exp_var}
+experiment_dir: ${base_dir}/${project_name}/${experiment_name}-${timestamp}
+
+use_manager_env: true
+num_envs: 4096
+project_name: TRL_G1_Track
+
+actor_prop_history_length: 10
+actor_actions_history_length: 10
+critic_prop_history_length: 10
+critic_actions_history_length: 10
+
+manager_env:
+  rewards:
+    feet_acc:
+      weight: -2.5e-6
+  config:
+    robot:
+      type: g1_model_12_dex
+    terrain_type: trimesh
+  commands:
+    motion:
+      reward_point_body: ["torso_link", "left_wrist_yaw_link", "right_wrist_yaw_link"]
+      reward_point_body_offset: [[0.0, 0.0, 0.5], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+      num_future_frames: 10
+      dt_future_ref_frames: 0.1
+      smpl_num_future_frames: 10
+      smpl_dt_future_ref_frames: 0.02
+      cat_upper_body_poses: true
+      cat_upper_body_poses_prob: 0.5
+      freeze_frame_aug: true
+      teleop_sample_prob_when_smpl: 0.5
+      motion_lib_cfg:
+        upper_body_augment_prefixes: ["2025", "sonic_walking", "sonic_running", "balance"]
+        adaptive_sampling:
+          adp_samp_failure_rate_max_over_mean: 200
+        motion_file: data/motion_lib_bones_seed/robot_filtered
+        smpl_motion_file: data/bones_seed_smpl
+        smpl_y_up: true
 
 # Load the released SONIC weights when training starts.  Override this path
 # with an absolute path if the checkpoint is stored elsewhere.
