@@ -16,6 +16,7 @@ defaults:
   - override /manager_env/rewards: tracking/base_5point_local_feet_acc
 
 exp_var: drift_moe
+exp_base: ${hydra:runtime.choices.exp}
 experiment_name: ${exp_base}_${exp_var}
 
 # Load the released SONIC weights when training starts.  Override this path
