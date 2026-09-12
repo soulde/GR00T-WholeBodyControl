@@ -1,7 +1,8 @@
 # @package algo.config.actor.backbone
 
-# Replaces the SONIC g1_dyn action decoder.  The original g1_dyn module stays
-# registered for checkpoint compatibility but is bypassed at runtime.
+# Replaces the SONIC g1_dyn middle hidden block.  Its input stem and action
+# head keep the original widths; the original full decoder remains registered
+# only for checkpoint compatibility and is bypassed at runtime.
 drift_moe:
   enabled: true
   num_experts: 8
