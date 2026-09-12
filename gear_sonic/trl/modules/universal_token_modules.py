@@ -6,6 +6,8 @@ import torch
 from torch import nn
 
 from gear_sonic.trl.utils import common
+from gear_sonic.trl.losses.drift_moe_losses import compute_drift_moe_losses
+from drift_moe.groot_adapter import build_replacement_action_decoder
 
 
 def set_fuzzy_config_params(config, candidate_keys, value):
@@ -95,6 +97,7 @@ class UniversalTokenModule(nn.Module):
         optimize_encoders_ratio_for_CHIP=False,  # CHIP compliance training optimization
         active_encoders=None,  # Optional list of encoder names to activate (None = all)
         active_decoders=None,  # Optional list of decoder names to activate (None = all)
+        drift_moe=None,  # Optional replacement for the g1_dyn action decoder
         **kwargs,  # noqa: ARG002
     ):
         """Initialise encoders, FSQ quantizer, decoders, and auxiliary losses.
@@ -165,6 +168,10 @@ class UniversalTokenModule(nn.Module):
         self.stiff_compliance_threshold = stiff_compliance_threshold
         self.freeze_quantizer = freeze_quantizer
         self.optimize_encoders_ratio_for_CHIP = optimize_encoders_ratio_for_CHIP
+        self.drift_moe_cfg = drift_moe or {}
+        self.drift_moe_action_decoder = None
+        self._last_drift_moe_output = None
+        self._last_drift_moe_output_detached = None
 
         if self.optimize_encoders_ratio_for_CHIP:
             logger.info(
@@ -408,6 +415,34 @@ class UniversalTokenModule(nn.Module):
 
             logger.info(
                 f"Initialized {decoder_name} decoder with input features: {input_features} and output features: {output_features}"  # noqa: E501
+            )
+
+        # Replace the original g1_dyn decoder when explicitly enabled.  The
+        # original module remains registered for checkpoint compatibility, but
+        # is no longer called on the action path.
+        if self.drift_moe_cfg.get("enabled", False) and "g1_dyn" in self.decoder_output_feature_dims:
+            action_dim = sum(self.decoder_output_feature_dims["g1_dyn"].values())
+            self.drift_moe_action_decoder = build_replacement_action_decoder(
+                latent_dim=self.token_total_dim,
+                proprioception_dim=proprioception_dim,
+                action_dim=action_dim,
+                num_experts=self.drift_moe_cfg.get("num_experts", 8),
+                top_k=self.drift_moe_cfg.get("top_k", 2),
+                expert_hidden_dim=self.drift_moe_cfg.get("expert_hidden_dim", 128),
+                router_hidden_dim=self.drift_moe_cfg.get("router_hidden_dim", 128),
+                action_hidden_dims=tuple(
+                    self.drift_moe_cfg.get(
+                        "action_hidden_dims", (2048, 2048, 1024, 1024, 512, 512)
+                    )
+                ),
+            )
+            self.aux_loss_coef = dict(self.aux_loss_coef)
+            self.aux_loss_coef.setdefault("drift_balance", self.drift_moe_cfg.get("balance_coef", 0.01))
+            self.aux_loss_coef.setdefault("drift_intra", self.drift_moe_cfg.get("intra_coef", 0.01))
+            self.aux_loss_coef.setdefault("drift_cross", self.drift_moe_cfg.get("cross_coef", 0.01))
+            logger.info(
+                "Enabled Drift-MoE replacement for g1_dyn: "
+                f"experts={self.drift_moe_cfg.get('num_experts', 8)}, top_k={self.drift_moe_cfg.get('top_k', 2)}"
             )
 
         # Filter active encoders/decoders if specified (for kinematic-only training)
@@ -722,21 +757,33 @@ class UniversalTokenModule(nn.Module):
             decoder output tensor, e.g.
             ``{"action": Tensor(..., action_dim)}``.
         """
-        decoder = self.decoders[decoder_name]
         input_features = self.decoder_input_features[decoder_name]
         output_feature_dims = self.decoder_output_feature_dims[decoder_name]
         cond_features = self.decoder_cond_features.get(decoder_name, [])
         decoder_input = torch.cat([decode_input_dict[key] for key in input_features], dim=-1)
 
-        # Build optional kwargs for the decoder call
-        kwargs = {}
-        if cond_features:
-            kwargs["external_cond"] = torch.cat(
-                [decode_input_dict[key] for key in cond_features], dim=-1
+        if decoder_name == "g1_dyn" and self.drift_moe_action_decoder is not None:
+            output, moe_output = self.drift_moe_action_decoder(
+                decode_input_dict["token_flattened"],
+                decode_input_dict["proprioception"],
             )
-        if token_mask is not None and self.decoder_mask_features.get(decoder_name):
-            kwargs["token_mask"] = token_mask
-        output = decoder(decoder_input, **kwargs)
+            self._last_drift_moe_output = moe_output
+            self._last_drift_moe_output_detached = {
+                "router_probs": moe_output.router_probs.detach(),
+                "topk_indices": moe_output.topk_indices.detach(),
+            }
+        else:
+            decoder = self.decoders[decoder_name]
+
+            # Build optional kwargs for the decoder call
+            kwargs = {}
+            if cond_features:
+                kwargs["external_cond"] = torch.cat(
+                    [decode_input_dict[key] for key in cond_features], dim=-1
+                )
+            if token_mask is not None and self.decoder_mask_features.get(decoder_name):
+                kwargs["token_mask"] = token_mask
+            output = decoder(decoder_input, **kwargs)
 
         # parse output
         output_dict = {}
@@ -1056,6 +1103,16 @@ class UniversalTokenModule(nn.Module):
 
             for loss_name, loss_func in self.aux_loss_func.items():
                 aux_losses[loss_name] = loss_func(loss_inputs)
+
+            if self._last_drift_moe_output is not None:
+                drift_mask = token_mask.any(dim=-1) if token_mask is not None else None
+                aux_losses.update(
+                    compute_drift_moe_losses(
+                        self._last_drift_moe_output,
+                        self.drift_moe_cfg,
+                        mask=drift_mask,
+                    )
+                )
 
             output = {
                 "action_mean": action_mean,

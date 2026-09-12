@@ -1,0 +1,13 @@
+# @package _global_
+
+defaults:
+  - sonic_release
+  - override /actor_critic: universal_token/all_mlp_v1
+  - /actor_critic/universal_token/drift_moe@algo.config.actor.backbone
+
+exp_var: drift_moe
+experiment_name: ${exp_base}_${exp_var}
+
+# Load the released SONIC weights when training starts.  Override this path
+# with an absolute path if the checkpoint is stored elsewhere.
+checkpoint: ${oc.env:SONIC_CHECKPOINT,sonic_release/last.pt}
